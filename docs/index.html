@@ -155,15 +155,13 @@ body::before {
   transition: none;
 }
 
-.tab-page { display: none; flex-direction: column; }
-.tab-page.active { display: flex; }
-
 .tab-page {
   display: none;
+  flex-direction: column;
+  flex: 1;
   animation: pageIn 0.45s cubic-bezier(0.4, 0, 0.2, 1);
 }
-
-.tab-page.active { display: block; }
+.tab-page.active { display: flex; }
 
 @keyframes pageIn {
   from { opacity: 0; transform: translateY(12px); }
@@ -401,7 +399,7 @@ body::before {
 .us-table tr:hover td { background: rgba(255, 153, 0, 0.03); }
 
 .footer {
-  margin-top: 32px;
+  margin-top: auto;
   padding: 16px 0 32px;
   border-top: 1px solid rgba(255, 255, 255, 0.03);
   text-align: center;
