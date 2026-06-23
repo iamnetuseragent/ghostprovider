@@ -149,11 +149,14 @@ body::before {
   border-radius: var(--radius);
   padding: 44px 48px 0;
   height: 580px;
+  overflow: hidden;
   box-shadow:
     0 4px 60px rgba(0,0,0,0.5),
     inset 0 1px 0 rgba(255, 255, 255, 0.02);
   transition: none;
 }
+
+.tab-page { overflow-y: auto; }
 
 .tab-page {
   display: none;
