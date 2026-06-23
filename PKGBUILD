@@ -3,13 +3,13 @@
 pkgname=ghostprovider
 pkgver=1.0.0
 pkgrel=1
-pkgdesc="Cyberpunk 2077 themed localhost hosting analyzer"
+pkgdesc="TUI for self-hosting & localhost management"
 arch=('any')
-url="https://github.com/ghostprovider/ghostprovider"
+url="https://github.com/iamnetuseroagent/ghostprovider"
 license=('MIT')
 depends=('python' 'docker' 'git' 'python-pip')
 makedepends=('git')
-source=("$pkgname::git+https://github.com/ghostprovider/ghostprovider.git")
+source=("$pkgname::git+https://github.com/iamnetuseroagent/ghostprovider.git")
 sha256sums=('SKIP')
 
 package() {

@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GHOST PROVIDER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #050505;
+  --surface: rgba(18, 16, 14, 0.78);
+  --surface-border: rgba(255, 153, 0, 0.08);
+  --accent: #ff9900;
+  --accent-glow: rgba(255, 153, 0, 0.25);
+  --accent-dim: #cc7a00;
+  --text: #eae6e0;
+  --text-dim: #7a756e;
+  --radius: 20px;
+  --nav-w: 68px;
+}
+
+html { font-size: 15px; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  background-image:
+    radial-gradient(ellipse 600px 400px at 10% 30%, rgba(255, 153, 0, 0.04) 0%, transparent 70%),
+    radial-gradient(ellipse 500px 500px at 90% 70%, rgba(255, 120, 0, 0.03) 0%, transparent 70%),
+    radial-gradient(ellipse 300px 300px at 50% 0%, rgba(255, 200, 100, 0.02) 0%, transparent 70%);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 153, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 153, 0, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, black 30%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+  z-index: 0;
+  animation: orbFloat 20s ease-in-out infinite;
+}
+.orb-1 { width: 400px; height: 400px; background: rgba(255, 153, 0, 0.04); top: -10%; left: -5%; animation-delay: 0s; }
+.orb-2 { width: 350px; height: 350px; background: rgba(255, 120, 50, 0.03); bottom: -10%; right: -5%; animation-delay: -7s; }
+.orb-3 { width: 250px; height: 250px; background: rgba(200, 100, 0, 0.03); top: 50%; left: 50%; animation-delay: -14s; }
+
+@keyframes orbFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(40px, -30px) scale(1.05); }
+  66% { transform: translate(-20px, 20px) scale(0.95); }
+}
+
+.wrapper {
+  display: flex;
+  gap: 24px;
+  width: 100%;
+  max-width: 1040px;
+  position: relative;
+  z-index: 1;
+}
+
+.nav-dock {
+  position: sticky;
+  top: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(14, 12, 10, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 153, 0, 0.06);
+  border-radius: 18px;
+  padding: 10px 8px;
+  width: var(--nav-w);
+  flex-shrink: 0;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+}
+
+.nav-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  height: 50px;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-decoration: none;
+  position: relative;
+}
+
+.nav-btn svg { width: 22px; height: 22px; transition: transform 0.3s ease; }
+
+.nav-btn:hover { background: rgba(255, 153, 0, 0.07); border-color: rgba(255, 153, 0, 0.15); color: var(--accent); }
+.nav-btn:hover svg { transform: scale(1.1); }
+.nav-btn.active { background: rgba(255, 153, 0, 0.1); border-color: rgba(255, 153, 0, 0.25); color: var(--accent); box-shadow: 0 0 20px rgba(255, 153, 0, 0.06); }
+
+.nav-btn.active::after {
+  content: '';
+  position: absolute;
+  left: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.main-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(14, 12, 10, 0.65);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 153, 0, 0.06);
+  border-radius: var(--radius);
+  padding: 44px 48px 0;
+  height: 580px;
+  box-shadow:
+    0 4px 60px rgba(0,0,0,0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  transition: none;
+}
+
+.tab-page { display: none; flex-direction: column; }
+.tab-page.active { display: flex; }
+
+.tab-page {
+  display: none;
+  animation: pageIn 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.tab-page.active { display: block; }
+
+@keyframes pageIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: 210px 1fr;
+  gap: 44px;
+}
+
+.profile-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+.nickname {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+  position: relative;
+}
+
+.nickname::after {
+  content: '';
+  display: block;
+  width: 40%;
+  height: 2px;
+  margin: 8px auto 0;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  border-radius: 2px;
+}
+
+.tagline {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--text-dim);
+  margin-top: -10px;
+  letter-spacing: 0.02em;
+}
+
+.logo-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 153, 0, 0.1);
+  background: rgba(255, 153, 0, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logo-wrap .ghost-symbol {
+  font-size: 4rem;
+  filter: drop-shadow(0 0 20px rgba(255, 153, 0, 0.2));
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  border: 1px solid rgba(255, 153, 0, 0.2);
+  background: rgba(255, 153, 0, 0.06);
+  color: var(--accent);
+}
+
+.status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.meta {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+}
+
+.meta-label { color: var(--text-dim); font-weight: 400; }
+.meta-value { color: var(--text); font-weight: 500; text-align: right; }
+
+.bio-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bio-col h2 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 153, 0, 0.06);
+}
+
+.bio-col p {
+  margin-bottom: 14px;
+  color: rgba(234, 230, 224, 0.85);
+  font-size: 0.92rem;
+  line-height: 1.75;
+}
+
+.bio-col strong { font-weight: 700; color: var(--accent); text-shadow: 0 0 20px rgba(255, 153, 0, 0.1); }
+
+.bio-col a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1px;
+  transition: opacity 0.2s ease;
+}
+
+.bio-col a:hover { opacity: 0.8; }
+
+.tech-stack {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tech-pill {
+  padding: 4px 14px;
+  border-radius: 100px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  background: rgba(255, 153, 0, 0.05);
+  border: 1px solid rgba(255, 153, 0, 0.08);
+  color: var(--accent-dim);
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
+}
+
+.tech-pill:hover { background: rgba(255, 153, 0, 0.1); border-color: rgba(255, 153, 0, 0.2); }
+
+/* ── Install / Usage tab ── */
+.sub-hero { text-align: center; padding: 20px 0 10px; }
+.sub-hero h2 { font-size: 1.8rem; font-weight: 800; color: var(--accent); letter-spacing: -0.02em; }
+
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin: 24px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 153, 0, 0.06);
+}
+
+.install-block {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid rgba(255, 153, 0, 0.08);
+  border-radius: 12px;
+  padding: 14px 18px;
+  margin-bottom: 10px;
+}
+
+.install-block .label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.install-block code {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  color: var(--accent);
+  background: rgba(255, 153, 0, 0.04);
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 153, 0, 0.06);
+  overflow-x: auto;
+}
+
+.us-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.us-table th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--accent-dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  border-bottom: 1px solid rgba(255, 153, 0, 0.1);
+}
+
+.us-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: rgba(234, 230, 224, 0.85);
+}
+
+.us-table tr:hover td { background: rgba(255, 153, 0, 0.03); }
+
+.footer {
+  margin-top: 32px;
+  padding: 16px 0 32px;
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+
+.footer span {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+}
+
+.footer strong { color: var(--accent); font-weight: 500; }
+
+@media (max-width: 820px) {
+  body { padding: 0 0 80px 0; align-items: flex-start; }
+  .wrapper { flex-direction: column; gap: 0; }
+  .nav-dock {
+    position: fixed; bottom: 0; left: 0; right: 0; top: auto;
+    flex-direction: row; justify-content: center; width: 100%;
+    border-radius: 0; border: none; border-top: 1px solid rgba(255, 153, 0, 0.06);
+    padding: 8px 16px; gap: 16px; z-index: 100;
+    background: rgba(5, 5, 5, 0.92); backdrop-filter: blur(24px);
+  }
+  .nav-btn.active::after { left: 50%; top: -1px; transform: translateX(-50%); width: 20px; height: 3px; }
+  .main-card { border-radius: 0; border: none; padding: 28px 20px 0; min-height: calc(100dvh - 16px); height: auto; }
+  .about-grid { grid-template-columns: 1fr; gap: 24px; }
+  .profile-col { flex-direction: row; flex-wrap: wrap; align-items: flex-start; gap: 14px; }
+  .logo-wrap { width: 80px; flex-shrink: 0; aspect-ratio: 1; }
+  .logo-wrap .ghost-symbol { font-size: 2.5rem; }
+  .profile-col .nickname, .profile-col .tagline, .status-badge { flex: 1; min-width: 130px; }
+  .profile-col .nickname { font-size: 1.25rem; }
+  .profile-col .nickname::after { margin: 6px 0 0; }
+  .profile-col .meta { width: 100%; margin-top: 0; }
+}
+
+@media (max-width: 480px) {
+  .main-card { padding: 20px 14px 0; }
+  .profile-col .nickname, .profile-col .tagline, .status-badge { min-width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div class="orb orb-1"></div>
+<div class="orb orb-2"></div>
+<div class="orb orb-3"></div>
+
+<div class="wrapper">
+
+  <nav class="nav-dock">
+    <a class="nav-btn active" href="#" data-tab="about" title="Home">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+    </a>
+    <a class="nav-btn" href="#" data-tab="install" title="Install">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+    </a>
+    <a class="nav-btn" href="#" data-tab="usage" title="Usage">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 00 0 1.4l1.6 1.6a1 1 0 00 1.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+    </a>
+  </nav>
+
+  <div class="main-card">
+
+    <section class="tab-page active" id="tab-about">
+      <div class="about-grid">
+        <div class="profile-col">
+          <div class="nickname">GHOST PROVIDER</div>
+          <div class="tagline">TUI for self-hosting & localhost management</div>
+          <div class="logo-wrap">
+            <span class="ghost-symbol">&#x1F47B;</span>
+          </div>
+          <span class="status-badge">v1.0.0 &mdash; active</span>
+          <div class="meta">
+            <div class="meta-row"><span class="meta-label">language</span><span class="meta-value">Python</span></div>
+            <div class="meta-row"><span class="meta-label">runtime</span><span class="meta-value">Textual + Docker</span></div>
+            <div class="meta-row"><span class="meta-label">license</span><span class="meta-value">MIT</span></div>
+          </div>
+        </div>
+        <div class="bio-col">
+          <h2>about</h2>
+          <p><strong>GHOST PROVIDER</strong> automates and simplifies working with localhost. Analyze your system, discover running services, deploy any GitHub repo as a Docker container, and manage everything from a beautiful terminal interface &mdash; no manual config needed.</p>
+          <p>Paste a GitHub URL and get an instant <strong>host score</strong> (0&ndash;100). If it's deployable, GhostProvider handles the build, port mapping, and container lifecycle. Supports Python, Node.js, Go, Rust, static HTML, and Docker Compose projects.</p>
+          <p>Built for <strong>self-hosting</strong>. No cloud, no vendor lock, no subscriptions &mdash; just your localhost and Docker.</p>
+          <div class="tech-stack">
+            <span class="tech-pill">Python</span>
+            <span class="tech-pill">Docker</span>
+            <span class="tech-pill">Textual</span>
+            <span class="tech-pill">Self-hosting</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span>GHOST PROVIDER / <strong>v1.0.0</strong></span>
+      </div>
+    </section>
+
+    <section class="tab-page" id="tab-install">
+      <div class="sub-hero" style="padding-bottom:0">
+        <h2>Install</h2>
+      </div>
+
+      <div class="section-title">aur (arch linux)</div>
+      <div class="install-block">
+        <div class="label">yay / paru</div>
+        <code>yay -S ghostprovider</code>
+      </div>
+
+      <div class="section-title">manual</div>
+      <div class="install-block">
+        <div class="label">clone &amp; run</div>
+        <code>git clone https://github.com/iamnetuseroagent/ghostprovider.git<br>cd ghostprovider<br>python -m venv .venv<br>source .venv/bin/activate<br>pip install -e .<br>./ghostprovider.sh</code>
+      </div>
+
+      <div class="section-title">dependencies</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:4px">
+        <span class="tech-pill">Python 3.11+</span>
+        <span class="tech-pill">Docker</span>
+        <span class="tech-pill">Git</span>
+      </div>
+
+      <div class="footer">
+        <span>GHOST PROVIDER / <strong>v1.0.0</strong></span>
+      </div>
+    </section>
+
+    <section class="tab-page" id="tab-usage">
+      <div class="sub-hero" style="padding-bottom:0">
+        <h2>Usage</h2>
+      </div>
+
+      <div class="section-title">quick start</div>
+      <div class="install-block" style="margin-bottom:20px">
+        <code>ghostprovider</code>
+      </div>
+
+      <div class="section-title">main menu</div>
+      <table class="us-table">
+        <tr><th>action</th><th>description</th></tr>
+        <tr><td><strong>INITIALIZE SYSTEM SCAN</strong></td><td>Scan your local environment for tools, ports, and running services</td></tr>
+        <tr><td><strong>MANAGE ACTIVE SERVICES</strong></td><td>View, start, stop, restart, and remove running Docker containers</td></tr>
+        <tr><td><strong>Enter GitHub URL</strong></td><td>Paste a repo URL to analyze and deploy</td></tr>
+      </table>
+
+      <div class="section-title">host score</div>
+      <table class="us-table">
+        <tr><th>score</th><th>meaning</th></tr>
+        <tr><td><strong style="color:#22c55e">80&ndash;100</strong></td><td>High &mdash; ready to deploy</td></tr>
+        <tr><td><strong style="color:#eab308">50&ndash;79</strong></td><td>Medium &mdash; likely deployable</td></tr>
+        <tr><td><strong style="color:#f97316">20&ndash;49</strong></td><td>Low &mdash; may work, not guaranteed</td></tr>
+        <tr><td><strong style="color:#ef4444">0&ndash;19</strong></td><td>Unsuitable &mdash; CLI, library, or desktop app</td></tr>
+      </table>
+
+      <div class="footer">
+        <span>GHOST PROVIDER / <strong>v1.0.0</strong></span>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+(function() {
+  const navBtns = document.querySelectorAll('.nav-btn');
+  const tabPages = {
+    about: document.getElementById('tab-about'),
+    install: document.getElementById('tab-install'),
+    usage: document.getElementById('tab-usage'),
+  };
+
+  navBtns.forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      const tab = this.dataset.tab;
+      if (!tab || !tabPages[tab]) return;
+      navBtns.forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      Object.values(tabPages).forEach(p => p && p.classList.remove('active'));
+      tabPages[tab].classList.add('active');
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
