@@ -2,7 +2,7 @@
 
 # &#x1F47B; GHOST PROVIDER
 
-**Cyberpunk 2077 themed TUI for self-hosting & localhost management**
+**TUI for self-hosting & localhost management**
 
 <br>
 
@@ -39,7 +39,7 @@ Analyze your system, discover services, deploy GitHub repos as Docker containers
 
 &#x1F4C2; &nbsp; **GitHub Repo Analysis** &mdash; Paste any GitHub URL. GhostProvider checks for Dockerfile, docker-compose, dependency files, scans source code for HTTP servers, and computes a host score (0&ndash;100).
 
-&#x1F680; &nbsp; **One-Click Deploy** &mdash; Deploy compatible repos as Docker containers. Supports Python, Node.js, Go, Rust, static HTML, and Docker Compose projects with automatic port remapping and AI volume detection (Ollama, Open WebUI).
+&#x1F680; &nbsp; **One-Click Deploy** &mdash; Deploy compatible repos as Docker containers. Supports Python, Node.js, Go, Rust, static HTML, and Docker Compose projects with automatic port remapping.
 
 &#x1F4E6; &nbsp; **AUR Package** &mdash; Native Arch Linux package available on AUR.
 
@@ -117,17 +117,11 @@ Pull requests are welcome. For major changes, open an issue first.
 
 <br>
 
-## &#x1F4AC; Contact
-
-Telegram: [@iamusernet](https://t.me/iamusernet)
-
-<br>
-
 ---
 
 <div align="center">
 
-**GHOST PROVIDER** &middot; Made with &#x1F49A; for the internet
+**GHOST PROVIDER**
 
 &#x1F578; *Your data is your life. Fail to protect it, and you fail to protect your future.*
 
