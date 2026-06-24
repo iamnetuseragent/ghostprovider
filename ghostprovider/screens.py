@@ -2,6 +2,7 @@
 
 import asyncio
 import random
+import time
 
 from rich.style import Style
 from rich.text import Text
@@ -88,6 +89,11 @@ class MatrixRain(Widget):
         self._typing = ""
         self.refresh()
 
+    def write_msg(self, label: str) -> None:
+        self._messages.append((label, "", None))
+        self._typing = ""
+        self.refresh()
+
     async def typewrite_ok(self, label: str, addr: str = "", speed: float = 0.02) -> None:
         text = f"{addr}  {label}" if addr else label
         self._typing = ""
@@ -96,6 +102,16 @@ class MatrixRain(Widget):
             self.refresh()
             await asyncio.sleep(speed)
         self._messages.append((label, addr, True))
+        self._typing = ""
+        self.refresh()
+
+    async def typewrite_msg(self, label: str, speed: float = 0.02) -> None:
+        self._typing = ""
+        for ch in label:
+            self._typing += ch
+            self.refresh()
+            await asyncio.sleep(speed)
+        self._messages.append((label, "", None))
         self._typing = ""
         self.refresh()
 
@@ -155,12 +171,16 @@ class MatrixRain(Widget):
                     lines.append(t)
                 elif kind == "msg":
                     label, extra, ok = data  # type: ignore[misc]
-                    status = "[  OK  ]" if ok else "[FAILED]"
-                    color = "#00ff00" if ok else "#ff0000"
-                    text = f"{status}"
-                    if extra:
-                        text += f"  {extra}"
-                    text += f"  {label}"
+                    if ok is None:
+                        color = "#00ff00"
+                        text = label
+                    else:
+                        status = "[  OK  ]" if ok else "[FAILED]"
+                        color = "#00ff00" if ok else "#ff0000"
+                        text = f"{status}"
+                        if extra:
+                            text += f"  {extra}"
+                        text += f"  {label}"
                     lines.append(Text(text, Style(bold=True, color=color)))
                 elif kind == "typing":
                     text = data  # type: ignore[assignment]
@@ -227,9 +247,9 @@ class MainScreen(Screen):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-analyze":
-            self.app.push_screen("analysis")
+            self.app.push_screen(AnalysisScreen())
         elif event.button.id == "btn-services":
-            self.app.push_screen("services")
+            self.app.push_screen(ServiceListScreen())
 
     def on_key(self, event) -> None:
         if event.key in ("escape", "left"):
@@ -237,9 +257,9 @@ class MainScreen(Screen):
         elif event.key == "enter":
             focused = self.focused
             if focused and focused.id == "btn-analyze":
-                self.app.push_screen("analysis")
+                self.app.push_screen(AnalysisScreen())
             elif focused and focused.id == "btn-services":
-                self.app.push_screen("services")
+                self.app.push_screen(ServiceListScreen())
         elif event.key == "down":
             self.query_one("#btn-services", Button).focus()
         elif event.key == "up":
@@ -264,86 +284,55 @@ class AnalysisScreen(Screen):
         rain = self.query_one(MatrixRain)
         _safe_task(self._run_scan(rain))
 
+    async def _animate_dots(self, rain: MatrixRain, base: str, duration: float = 2.0, speed: float = 0.3) -> None:
+        end = time.monotonic() + duration
+        while time.monotonic() < end:
+            for dots in [".", "..", "..."]:
+                rain.set_status(f"{base}{dots}")
+                await asyncio.sleep(speed)
+                if time.monotonic() >= end:
+                    break
+
     async def _run_scan(self, rain: MatrixRain) -> None:
+        TOTAL = 8
+        rain.set_progress(0, TOTAL)
+
         await rain.typewrite_status("initializing localhost connection...", speed=0.04)
         await asyncio.sleep(0.5)
+        rain.set_progress(1, TOTAL)
+
         await rain.typewrite_status("authenticating kernel access...", speed=0.04)
         await asyncio.sleep(0.3)
+        rain.set_progress(2, TOTAL)
+
         await rain.typewrite_status("scanning environment...", speed=0.04)
         await asyncio.sleep(0.3)
+        rain.set_progress(3, TOTAL)
 
+        rain.set_progress(4, TOTAL)
+        await self._animate_dots(rain, "network analysis")
+        rain.write_msg("network analysis")
+
+        rain.set_progress(5, TOTAL)
+        await self._animate_dots(rain, "port analysis")
+        rain.write_msg("port analysis")
+
+        rain.set_progress(6, TOTAL)
+        rain.set_status("scanning localhost...")
+        await asyncio.sleep(0.3)
+
+        rain.set_progress(7, TOTAL)
+        rain.set_status("analyzing system...")
         result = await self._run_analysis_thread()
 
         rain.set_progress(0, len(result.summary_items))
-        await asyncio.sleep(0.2)
-
         for i, (label, ok) in enumerate(result.summary_items):
-            addr = _hex()
             if ok:
-                await rain.typewrite_ok(label, addr=addr, speed=0.015)
+                await rain.typewrite_msg(label, speed=0.015)
             else:
-                rain.write_fail(label, detail="SIGNAL LOST")
+                rain.write_msg(f"✗ {label}")
             rain.set_progress(i + 1, len(result.summary_items))
             await asyncio.sleep(0.1)
-
-        # ── Network details ──
-        rain.set_progress(0, 0)
-        await asyncio.sleep(0.3)
-
-        for iface in result.network_info.interfaces:
-            if iface.ip:
-                label = f"{iface.name}  {iface.ip}{iface.netmask}  [{iface.status}]"
-                await rain.typewrite_ok(label, addr="IFACE", speed=0.01)
-
-        for p in result.network_info.listening_ports:
-            label = f":{p.port}/{p.proto}  {p.process}"
-            await rain.typewrite_ok(label, addr="PORT", speed=0.005)
-
-        if result.network_info.vpn_active:
-            for v in result.network_info.vpn_interfaces:
-                await rain.typewrite_ok(f"VPN  {v}", addr="TUNN", speed=0.015)
-        else:
-            await rain.typewrite_ok("No VPN detected", addr="TUNN", speed=0.015)
-
-        if result.network_info.gateway:
-            await rain.typewrite_ok(
-                f"Gateway  {result.network_info.gateway}",
-                addr="GWAY", speed=0.01,
-            )
-
-        # Show detected localhost services with smart classification
-            # Only show body-matched fingerprints (>= 75 confidence),
-            # skip server-header fallbacks (Nginx, Python HTTP Server, etc.)
-            trusted_services = [s for s in result.network_info.services if s.confidence >= 75]
-            if trusted_services:
-                svc_type_labels = {
-                    "search_engine": "🔍",
-                    "media_server": "🎵",
-                    "web_app": "🌐",
-                    "api_server": "⚡",
-                    "dashboard": "📊",
-                    "proxy": "🔁",
-                    "dev_server": "🛠",
-                    "file_server": "📁",
-                    "system_service": "⚙",
-                    "desktop_app": "🖥",
-                }
-                for svc in trusted_services:
-                    icon = svc_type_labels.get(svc.service_type, "?")
-                    can_host = "✓" if svc.can_host else "✗"
-                    label = (
-                        f"[{can_host}] :{svc.port}  {icon} "
-                        f"{svc.service_name} ({svc.service_type})"
-                    )
-                    if svc.can_host:
-                        await rain.typewrite_ok(label, addr="HOST", speed=0.01)
-                    else:
-                        rain.write_fail(label, detail="SKIP")
-            elif result.network_info.listening_ports:
-                await rain.typewrite_ok(
-                    "No recognizable HTTP services",
-                    addr="HOST", speed=0.01,
-                )
 
         if result.all_ok:
             rain.set_status("ALL GATEWAYS NOMINAL — Enter to proceed")
@@ -897,10 +886,9 @@ class HostingScreen(Screen):
 
     def on_key(self, event) -> None:
         if event.key == "enter" and getattr(self, "_done", False):
-            main = self.app.get_screen("main")
-            main.query_one("#btn-analyze", Button).focus()
-            self.app.switch_screen("main")
-            main.call_after_refresh(main._refresh)
+            while not isinstance(self.app.screen, MainScreen):
+                self.app.pop_screen()
+            event.stop()
 
 
 # ── Modals ──────────────────────────────────────────────────────────

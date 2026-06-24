@@ -332,9 +332,7 @@ class GhostProviderApp(App):
 
     SCREENS = {
         "main": MainScreen,
-        "analysis": AnalysisScreen,
         "github": GithubScreen,
-        "services": ServiceListScreen,
     }
 
     BINDINGS = [
