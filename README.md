@@ -52,6 +52,19 @@ makepkg -si
 - **Docker** &mdash; for container deployment
 - **Git** &mdash; for cloning repositories
 
+### Updating
+
+**If installed via git:**
+```bash
+cd ghostprovider
+git pull
+```
+
+**If installed via pip:**
+```bash
+pip install --upgrade ghostprovider
+```
+
 <br>
 
 ## Usage
