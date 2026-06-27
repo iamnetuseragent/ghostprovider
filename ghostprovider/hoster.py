@@ -72,6 +72,8 @@ class RepoAnalysis:
     deep_analysis: dict[str, Any] = field(default_factory=dict)
     compose_content: str = ""
     compose_images_only: bool = False
+    dockerfile_path: str | None = None
+    compose_path: str | None = None
 
 
 def parse_github_url(url: str) -> tuple | None:
@@ -654,13 +656,25 @@ def detect_app_category(
     return "unknown", "Could not determine application type from available signals", True
 
 
-def _parse_compose_volumes(project_dir: Path) -> list[VolumeHint]:
+def _parse_compose_volumes(project_dir: Path, compose_subpath: str | None = None) -> list[VolumeHint]:
     hints: list[VolumeHint] = []
     compose_file = None
-    for f in ("docker-compose.yml", "docker-compose.yaml"):
-        if (project_dir / f).exists():
-            compose_file = f
-            break
+    if compose_subpath and (project_dir / compose_subpath).is_file():
+        compose_file = compose_subpath
+    else:
+        for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"):
+            if (project_dir / f).exists():
+                compose_file = f
+                break
+        if not compose_file:
+            for subdir in _SUBDIRS_TO_SCAN:
+                for f in _COMPOSE_NAMES:
+                    candidate = f"{subdir}/{f}"
+                    if (project_dir / candidate).is_file():
+                        compose_file = candidate
+                        break
+                if compose_file:
+                    break
     if not compose_file:
         return hints
 
@@ -747,12 +761,25 @@ def _describe_volume(container_path: str, var_name: str = "") -> str:
     return f"Directory: {base}"
 
 
-def _parse_dockerfile_volumes(project_dir: Path) -> list[VolumeHint]:
+def _parse_dockerfile_volumes(project_dir: Path, dockerfile_subpath: str | None = None) -> list[VolumeHint]:
     hints: list[VolumeHint] = []
-    for df_name in ("Dockerfile", "Dockerfile.ghost"):
-        df = project_dir / df_name
-        if not df.exists():
-            continue
+    dockerfiles: list[Path] = []
+    if dockerfile_subpath and (project_dir / dockerfile_subpath).is_file():
+        dockerfiles.append(project_dir / dockerfile_subpath)
+    else:
+        for df_name in ("Dockerfile", "Dockerfile.ghost"):
+            df = project_dir / df_name
+            if df.is_file():
+                dockerfiles.append(df)
+        if not dockerfiles:
+            for subdir in _SUBDIRS_TO_SCAN:
+                for df_name in _DOCKERFILE_NAMES:
+                    df = project_dir / subdir / df_name
+                    if df.is_file():
+                        dockerfiles.append(df)
+                if dockerfiles:
+                    break
+    for df in dockerfiles:
         try:
             for line in df.read_text().splitlines():
                 m = re.search(r"VOLUME\s+\[?\"?\'?(/[^\]\"\']+)", line)
@@ -773,8 +800,8 @@ def detect_volume_hints(analysis: RepoAnalysis) -> list[VolumeHint]:
     if not analysis.clone_path:
         return []
     project_dir = Path(analysis.clone_path)
-    hints = _parse_compose_volumes(project_dir)
-    hints.extend(_parse_dockerfile_volumes(project_dir))
+    hints = _parse_compose_volumes(project_dir, analysis.compose_path)
+    hints.extend(_parse_dockerfile_volumes(project_dir, analysis.dockerfile_path))
     return hints
 
 
@@ -944,7 +971,10 @@ def _strip_compose_builds(compose_content: str) -> str:
 
 def _fetch_compose_content(result: RepoAnalysis) -> None:
     """Fetch docker-compose content via API and detect if it uses only images."""
-    for fname in ("docker-compose.yml", "docker-compose.yaml"):
+    candidates = ["docker-compose.yml", "docker-compose.yaml"]
+    if result.compose_path:
+        candidates.insert(0, result.compose_path)
+    for fname in candidates:
         try:
             r = requests.get(
                 f"https://raw.githubusercontent.com/{result.owner}/{result.name}/main/{fname}",
@@ -977,6 +1007,69 @@ def _check_root_files_via_api(owner: str, name: str) -> set[str] | None:
         return None
 
 
+_SUBDIRS_TO_SCAN = ("scripts", ".docker", "deploy", "build", "docker")
+_DOCKERFILE_NAMES = ("Dockerfile",)
+_COMPOSE_NAMES = ("docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml")
+
+
+def _check_subdirs_via_api(owner: str, name: str) -> tuple[str | None, str | None]:
+    """Probe common subdirectories for Dockerfile and compose files via GitHub API."""
+    dockerfile_path: str | None = None
+    compose_path: str | None = None
+
+    for subdir in _SUBDIRS_TO_SCAN:
+        if dockerfile_path and compose_path:
+            break
+        try:
+            r = requests.get(
+                f"https://api.github.com/repos/{owner}/{name}/contents/{subdir}",
+                timeout=10,
+                headers={"Accept": "application/vnd.github.v3+json"},
+            )
+            if r.status_code != 200:
+                continue
+            files = {item["name"] for item in r.json() if isinstance(item, dict)}
+            if not dockerfile_path:
+                for name_ in _DOCKERFILE_NAMES:
+                    if name_ in files:
+                        dockerfile_path = f"{subdir}/{name_}"
+                        break
+            if not compose_path:
+                for name_ in _COMPOSE_NAMES:
+                    if name_ in files:
+                        compose_path = f"{subdir}/{name_}"
+                        break
+        except (requests.RequestException, ValueError, TypeError):
+            continue
+
+    return dockerfile_path, compose_path
+
+
+def _scan_clone_subdirs(project_dir: Path) -> tuple[str | None, str | None]:
+    """Scan cloned repo subdirectories for Dockerfile and compose files."""
+    dockerfile_path: str | None = None
+    compose_path: str | None = None
+
+    for subdir in _SUBDIRS_TO_SCAN:
+        if dockerfile_path and compose_path:
+            break
+        sub = project_dir / subdir
+        if not sub.is_dir():
+            continue
+        if not dockerfile_path:
+            for name_ in _DOCKERFILE_NAMES:
+                if (sub / name_).is_file():
+                    dockerfile_path = f"{subdir}/{name_}"
+                    break
+        if not compose_path:
+            for name_ in _COMPOSE_NAMES:
+                if (sub / name_).is_file():
+                    compose_path = f"{subdir}/{name_}"
+                    break
+
+    return dockerfile_path, compose_path
+
+
 def analyze_repo(url: str, work_dir: str | None = None) -> RepoAnalysis:
     result = RepoAnalysis(url=url)
 
@@ -1002,6 +1095,7 @@ def analyze_repo(url: str, work_dir: str | None = None) -> RepoAnalysis:
         result.has_dockerfile = "Dockerfile" in root_files
         result.has_compose = (
             "docker-compose.yml" in root_files or "docker-compose.yaml" in root_files
+            or "compose.yaml" in root_files or "compose.yml" in root_files
         )
         result.has_package_json = "package.json" in root_files
         result.has_requirements = "requirements.txt" in root_files
@@ -1021,6 +1115,29 @@ def analyze_repo(url: str, work_dir: str | None = None) -> RepoAnalysis:
             result.web_app_verified = is_web
 
             # Fetch compose content to check if it uses only pre-built images (no build:)
+            if result.has_compose:
+                _fetch_compose_content(result)
+
+            return result
+
+        # No Dockerfile/compose in root — probe common subdirectories
+        sub_dockerfile, sub_compose = _check_subdirs_via_api(result.owner, result.name)
+        if sub_dockerfile or sub_compose:
+            if sub_dockerfile:
+                result.has_dockerfile = True
+                result.dockerfile_path = sub_dockerfile
+            if sub_compose:
+                result.has_compose = True
+                result.compose_path = sub_compose
+            result.language = _detect_language(result)
+            result.can_host = True
+            result.host_score = 90
+            result.host_recommendation = "Docker project (subdir scan)"
+            cat, cat_reason, is_web = detect_app_category(result, metadata)
+            result.app_category = cat
+            result.category_reason = cat_reason
+            result.web_app_verified = is_web
+
             if result.has_compose:
                 _fetch_compose_content(result)
 
@@ -1053,12 +1170,23 @@ def analyze_repo(url: str, work_dir: str | None = None) -> RepoAnalysis:
         result.has_dockerfile = "Dockerfile" in items
         result.has_compose = (
             "docker-compose.yml" in items or "docker-compose.yaml" in items
+            or "compose.yaml" in items or "compose.yml" in items
         )
         result.has_package_json = "package.json" in items
         result.has_requirements = "requirements.txt" in items
         result.has_go_mod = "go.mod" in items
         result.has_cargo = "Cargo.toml" in items
         result.has_index = any(f in items for f in ("index.html", "index.htm", "index.php"))
+
+        # If no root Dockerfile/compose, scan subdirectories
+        if not result.has_dockerfile and not result.has_compose:
+            sub_dockerfile, sub_compose = _scan_clone_subdirs(Path(clone_dir))
+            if sub_dockerfile:
+                result.has_dockerfile = True
+                result.dockerfile_path = sub_dockerfile
+            if sub_compose:
+                result.has_compose = True
+                result.compose_path = sub_compose
 
         result.language = _detect_language(result)
 
@@ -1136,9 +1264,14 @@ def ensure_cloned(analysis: RepoAnalysis, work_dir: str | None = None) -> None:
     # When compose uses only pre-built images, skip git clone entirely
     if analysis.compose_images_only and analysis.compose_content:
         os.makedirs(clone_dir, exist_ok=True)
-        # Write the compose file into the directory
-        compose_path = os.path.join(clone_dir, "docker-compose.yml")
-        with open(compose_path, "w") as f:
+        # Write the compose file into the directory — preserve subdir path if known
+        if analysis.compose_path:
+            target_dir = os.path.join(clone_dir, os.path.dirname(analysis.compose_path))
+            os.makedirs(target_dir, exist_ok=True)
+            compose_file_path = os.path.join(clone_dir, analysis.compose_path)
+        else:
+            compose_file_path = os.path.join(clone_dir, "docker-compose.yml")
+        with open(compose_file_path, "w") as f:
             f.write(analysis.compose_content)
         analysis.clone_path = clone_dir
         analysis.has_compose = True
@@ -1156,12 +1289,24 @@ def ensure_cloned(analysis: RepoAnalysis, work_dir: str | None = None) -> None:
         analysis.has_dockerfile = "Dockerfile" in items
         analysis.has_compose = (
             "docker-compose.yml" in items or "docker-compose.yaml" in items
+            or "compose.yaml" in items or "compose.yml" in items
         )
         analysis.has_package_json = "package.json" in items
         analysis.has_requirements = "requirements.txt" in items
         analysis.has_go_mod = "go.mod" in items
         analysis.has_cargo = "Cargo.toml" in items
         analysis.has_index = any(f in items for f in ("index.html", "index.htm", "index.php"))
+
+        # If no root Dockerfile/compose, scan subdirectories
+        if not analysis.has_dockerfile and not analysis.has_compose:
+            project_dir = Path(clone_dir)
+            sub_dockerfile, sub_compose = _scan_clone_subdirs(project_dir)
+            if sub_dockerfile:
+                analysis.has_dockerfile = True
+                analysis.dockerfile_path = sub_dockerfile
+            if sub_compose:
+                analysis.has_compose = True
+                analysis.compose_path = sub_compose
     else:
         raise RuntimeError(f"git clone failed: {proc.stderr.decode(errors='replace')[:200]}")
 
@@ -1434,6 +1579,7 @@ def _resolve_ai_host_path(vol_name: str) -> str:
 
 def _replace_ai_volumes_in_compose(project_dir: Path,
                                    target_path: Path | None = None,
+                                   compose_subpath: str | None = None,
                                    ) -> Path | None:
     """Replace named AI volumes in docker-compose with host-mounted bind mounts.
 
@@ -1442,10 +1588,13 @@ def _replace_ai_volumes_in_compose(project_dir: Path,
     ``.ghost-`` file so the original is never touched.
     """
     compose_file = None
-    for f in ("docker-compose.yml", "docker-compose.yaml"):
-        if (project_dir / f).exists():
-            compose_file = f
-            break
+    if compose_subpath and (project_dir / compose_subpath).is_file():
+        compose_file = compose_subpath
+    else:
+        for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"):
+            if (project_dir / f).exists():
+                compose_file = f
+                break
     if not compose_file:
         return None
 
@@ -1517,11 +1666,12 @@ def _replace_ai_volumes_in_compose(project_dir: Path,
     new_content = re.sub(r'\n+volumes:\s*\n(?=\S|\Z)', '', new_content)
 
     modified = project_dir / f".ghost-{compose_file}"
+    modified.parent.mkdir(parents=True, exist_ok=True)
     modified.write_text(new_content)
     return modified
 
 
-def _remap_compose_ports(project_dir: Path) -> Path | None:
+def _remap_compose_ports(project_dir: Path, compose_subpath: str | None = None) -> Path | None:
     """Rewrite docker-compose ports and strip fixed container_name to avoid conflicts.
     
     Replaces busy host ports with free ones and removes hardcoded container_name
@@ -1530,10 +1680,13 @@ def _remap_compose_ports(project_dir: Path) -> Path | None:
     Returns path to modified compose file, or None if no changes needed.
     """
     compose_file = None
-    for f in ("docker-compose.yml", "docker-compose.yaml"):
-        if (project_dir / f).exists():
-            compose_file = f
-            break
+    if compose_subpath and (project_dir / compose_subpath).is_file():
+        compose_file = compose_subpath
+    else:
+        for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"):
+            if (project_dir / f).exists():
+                compose_file = f
+                break
     if not compose_file:
         return None
 
@@ -1557,7 +1710,7 @@ def _remap_compose_ports(project_dir: Path) -> Path | None:
         r'(?P<q>["\']?)(?P<host_start>\d+)-(?P<host_end>\d+):(?P<cont_start>\d+)-(?P<cont_end>\d+)(?P<tail>/[a-z]+)?(?P=q)'
     )
     envvar_def_pat = re.compile(
-        r'(?P<q>["\']?)\$\{(?P<var>[^}:]+):-(?P<def>\d+)\}:(?P<cont>\d+)(?P<tail>/[a-z]+)?(?P=q)'
+        r'(?P<q>["\']?)\$\{(?P<var>[^}:]+)(?P<sep>:-|-)(?P<def>\d+)\}:(?P<cont>\d+)(?P<tail>/[a-z]+)?(?P=q)'
     )
     envvar_nodef_pat = re.compile(
         r'(?P<q>["\']?)\$\{(?P<var>[^}]+)\}:(?P<cont>\d+)(?P<tail>/[a-z]+)?(?P=q)'
@@ -1581,7 +1734,7 @@ def _remap_compose_ports(project_dir: Path) -> Path | None:
             new_port = find_free_port(host_port + 1)
         except RuntimeError:
             return m.group(0)
-        return f'{m.group("q")}${{{m.group("var")}:-{new_port}}}:{m.group("cont")}{m.group("tail") or ""}{m.group("q")}'
+        return f'{m.group("q")}${{{m.group("var")}{m.group("sep")}{new_port}}}:{m.group("cont")}{m.group("tail") or ""}{m.group("q")}'
 
     def _replace_envvar_nodef(m: re.Match) -> str:
         return m.group(0)
@@ -1630,6 +1783,7 @@ def _remap_compose_ports(project_dir: Path) -> Path | None:
     # Always write if container_name was stripped or ports changed
     if new_content != content or changed:
         modified = project_dir / f".ghost-{compose_file}"
+        modified.parent.mkdir(parents=True, exist_ok=True)
         modified.write_text(new_content)
         return modified
     return None
@@ -1835,15 +1989,17 @@ def host_project(analysis: RepoAnalysis, port: int = 0,
     # Patch compose file: remap ports → inject AI volume host-mounts
     prepared = None
     if has_compose:
-        modified = _remap_compose_ports(project_dir)
-        ai_modified = _replace_ai_volumes_in_compose(project_dir, modified)
+        modified = _remap_compose_ports(project_dir, analysis.compose_path)
+        ai_modified = _replace_ai_volumes_in_compose(project_dir, modified, analysis.compose_path)
         prepared = ai_modified or modified
 
     fn_map = {
         "docker-compose": lambda: _run_compose(
             project_dir, prepared, analysis.name, mounts, on_status=on_status,
+            compose_subpath=analysis.compose_path,
         ),
-        "Dockerfile": lambda: _build_and_run_docker(project_dir, port, repo_url, mounts),
+        "Dockerfile": lambda: _build_and_run_docker(project_dir, port, repo_url, mounts,
+                                                     dockerfile_path=analysis.dockerfile_path),
         "Python": lambda: _host_python(project_dir, port, repo_url, mounts),
         "Node.js": lambda: _host_node(project_dir, port, repo_url, mounts),
         "Go": lambda: _host_go(project_dir, port, repo_url, mounts),
@@ -1913,7 +2069,7 @@ def _build_compose_env(project_dir: Path,
         return env
 
     compose_file = None
-    for f in ("docker-compose.yml", "docker-compose.yaml"):
+    for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"):
         if (project_dir / f).exists():
             compose_file = f
             break
@@ -1962,12 +2118,16 @@ def _stream_subprocess(cmd: list[str], env: dict | None,
 
 def _run_compose(project_dir: Path, modified: Path | None, repo_name: str,
                  volume_mounts: list[tuple[str, str]] | None = None,
-                 on_status: callable | None = None) -> HostResult:
+                 on_status: callable | None = None,
+                 compose_subpath: str | None = None) -> HostResult:
     compose_file = None
-    for f in ("docker-compose.yml", "docker-compose.yaml"):
-        if (project_dir / f).exists():
-            compose_file = f
-            break
+    if compose_subpath and (project_dir / compose_subpath).is_file():
+        compose_file = compose_subpath
+    else:
+        for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"):
+            if (project_dir / f).exists():
+                compose_file = f
+                break
     if not compose_file:
         return HostResult()
 
@@ -2020,17 +2180,29 @@ def _run_compose(project_dir: Path, modified: Path | None, repo_name: str,
 
 
 def _build_and_run_docker(project_dir: Path, port: int, repo_url: str = "",
-                           volume_mounts: list[tuple[str, str]] | None = None) -> str:
+                           volume_mounts: list[tuple[str, str]] | None = None,
+                           dockerfile_path: str | None = None) -> str:
     import uuid
     tag = f"ghost-{uuid.uuid4().hex[:8]}"
 
+    build_args = ["docker", "build", "-t", tag]
+    if dockerfile_path and (project_dir / dockerfile_path).is_file():
+        build_args += ["-f", str(project_dir / dockerfile_path)]
+        build_args.append(str(project_dir))
+    else:
+        build_args.append(str(project_dir))
     subprocess.run(
-        ["docker", "build", "-t", tag, str(project_dir)],
+        build_args,
         capture_output=True, text=True,
         check=True, timeout=600,
     )
 
-    internal_port = _detect_dockerfile_port(project_dir) or 80
+    # Detect internal port from Dockerfile — check the specific path first
+    internal_port = None
+    if dockerfile_path and (project_dir / dockerfile_path).is_file():
+        internal_port = _detect_dockerfile_port_at(project_dir / dockerfile_path)
+    if not internal_port:
+        internal_port = _detect_dockerfile_port(project_dir) or 80
     run_args = ["docker", "run", "-d", "-p", f"{port}:{internal_port}"]
     run_args.extend(_build_volume_args(volume_mounts))
     if repo_url:
@@ -2045,6 +2217,13 @@ def _detect_dockerfile_port(project_dir: Path) -> int | None:
     """Scan Dockerfile for EXPOSE directive and return the first port found."""
     dockerfile = project_dir / "Dockerfile"
     if not dockerfile.exists():
+        return None
+    return _detect_dockerfile_port_at(dockerfile)
+
+
+def _detect_dockerfile_port_at(dockerfile: Path) -> int | None:
+    """Scan a specific Dockerfile for EXPOSE directive."""
+    if not dockerfile.is_file():
         return None
     try:
         content = dockerfile.read_text()
@@ -2548,7 +2727,7 @@ def _is_ghost_container(container_id: str) -> bool:
 
 
 def _cleanup_strategy(result: HostResult) -> None:
-    """Remove containers started by a failed strategy attempt.
+    """Remove containers started by a failed strategy attempt and their networks.
 
     Only removes containers that were created by ghostprovider (have ghostprovider label).
     """
@@ -2556,7 +2735,7 @@ def _cleanup_strategy(result: HostResult) -> None:
         try:
             compose_cmd = _docker_compose_cmd()
             subprocess.run(
-                compose_cmd + ["-p", result.compose_project, "down"],
+                compose_cmd + ["-p", result.compose_project, "down", "--remove-orphans"],
                 capture_output=True, text=True, timeout=30,
             )
         except (RuntimeError, subprocess.TimeoutExpired, FileNotFoundError):
@@ -2566,10 +2745,14 @@ def _cleanup_strategy(result: HostResult) -> None:
             if not _is_ghost_container(cid):
                 continue
             try:
+                from ghostprovider.services import _get_container_networks, _cleanup_networks
+                networks = _get_container_networks(cid)
                 subprocess.run(
                     ["docker", "rm", "-f", cid],
                     capture_output=True, text=True, timeout=10,
                 )
+                if networks:
+                    _cleanup_networks(networks)
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 pass
 
@@ -2580,7 +2763,7 @@ def cleanup(analysis: RepoAnalysis, container_ids: list[str] | None = None, comp
         try:
             compose_cmd = _docker_compose_cmd()
             subprocess.run(
-                compose_cmd + ["-p", compose_project, "down"],
+                compose_cmd + ["-p", compose_project, "down", "--remove-orphans"],
                 capture_output=True, text=True, timeout=30,
             )
         except (RuntimeError, subprocess.TimeoutExpired, FileNotFoundError):
@@ -2590,10 +2773,14 @@ def cleanup(analysis: RepoAnalysis, container_ids: list[str] | None = None, comp
             if not _is_ghost_container(cid):
                 continue
             try:
+                from ghostprovider.services import _get_container_networks, _cleanup_networks
+                networks = _get_container_networks(cid)
                 subprocess.run(
                     ["docker", "rm", "-f", cid],
                     capture_output=True, text=True, timeout=10,
                 )
+                if networks:
+                    _cleanup_networks(networks)
             except (subprocess.TimeoutExpired, FileNotFoundError):
                 pass
     if analysis.clone_path and os.path.isdir(analysis.clone_path):

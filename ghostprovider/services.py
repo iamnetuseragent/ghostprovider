@@ -288,10 +288,41 @@ def _remove_clone_dir(clone_path: str) -> None:
         pass
 
 
+def _get_container_networks(name: str) -> list[str]:
+    """Return network names a container is connected to (excluding built-in ones)."""
+    built_in = {"bridge", "host", "none", "ingress"}
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", name],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode != 0:
+            return []
+        import json
+        networks = json.loads(r.stdout.strip())
+        return [n for n in networks if n not in built_in]
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError, ValueError):
+        return []
+
+
+def _cleanup_networks(networks: list[str]) -> None:
+    """Remove orphaned Docker networks (silently ignores errors)."""
+    for net in networks:
+        try:
+            subprocess.run(
+                ["docker", "network", "rm", net],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+
 def remove_container(name: str) -> str:
-    """Force-remove a container by name and delete its cloned repo."""
+    """Force-remove a container by name, clean up its network, and delete cloned repo."""
     from ghostprovider.state import get_clone_path, _find_by_repo_url, unregister as _unregister_state
-    
+
+    networks = _get_container_networks(name)
+
     clone_path = get_container_label(name, "ghostprovider.clone_path")
     if not clone_path:
         clone_path = get_clone_path(name)
@@ -313,6 +344,8 @@ def remove_container(name: str) -> str:
             _unregister_state(name)
             if clone_path:
                 _remove_clone_dir(clone_path)
+            if networks:
+                _cleanup_networks(networks)
             return f"Container '{name}' removed successfully"
         error = result.stderr.strip() or "unknown error"
         return f"Failed to remove '{name}': {error}"
