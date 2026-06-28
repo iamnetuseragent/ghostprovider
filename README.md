@@ -4,9 +4,9 @@
 
 <br>
 
-> *Your data is your life.*
-> *Fail to protect it, and you fail to protect your future.*
-> *Only you decide what that future will be.*
+                Your data is your life.
+Fail to protect it, and you fail to protect your future.
+       Only you decide what that future will be.
 
 <br>
 
