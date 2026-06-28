@@ -1,5 +1,6 @@
-"""Smart dependency installer for ghostprovider."""
+"""Smart dependency installer for ghostprovider (Arch Linux)."""
 
+import os
 import shutil
 import subprocess
 
@@ -8,14 +9,14 @@ def required_tools(has_compose: bool, has_dockerfile: bool,
                    has_package_json: bool, has_requirements: bool,
                    has_go_mod: bool, has_cargo: bool,
                    has_index: bool = False) -> list[str]:
-    """Return list of required tool names based on repo analysis."""
+    """Return list of required tool names based on repo analysis.
+
+    For Docker-based deployment only git and docker are needed on the host.
+    Python, Node.js etc. run inside containers.
+    """
     tools = ["git"]
     if has_compose or has_dockerfile or has_index:
         tools.append("docker")
-    if has_requirements:
-        tools.append("python3")
-    if has_package_json:
-        tools.append("node")
     return tools
 
 
@@ -23,8 +24,6 @@ def tool_display_name(tool: str) -> str:
     names = {
         "git": "Git",
         "docker": "Docker",
-        "python3": "Python 3",
-        "node": "Node.js",
     }
     return names.get(tool, tool)
 
@@ -33,15 +32,11 @@ def tool_description(tool: str) -> str:
     desc = {
         "git": "Git — version control system (cloning repositories)",
         "docker": "Docker — containerization (running isolated services)",
-        "python3": "Python 3 — interpreter for Python projects",
-        "node": "Node.js — runtime for JavaScript/TypeScript projects",
     }
     return desc.get(tool, tool)
 
 
 def is_installed(tool: str) -> bool:
-    if tool == "docker":
-        return shutil.which("docker") is not None
     return shutil.which(tool) is not None
 
 
@@ -50,75 +45,77 @@ def missing_tools(tools: list[str]) -> list[str]:
 
 
 def detect_pm() -> str | None:
-    """Detect available system package manager."""
-    for cmd in ("apt-get", "pacman", "dnf", "yum", "brew", "apk", "zypper"):
+    """Detect available package manager on Arch Linux.
+
+    AUR helpers (yay, paru) are preferred over plain pacman
+    because they handle both official and AUR packages.
+    """
+    for cmd in ("yay", "paru", "pacman"):
         if shutil.which(cmd):
             return cmd
     return None
 
 
+_PM_PKGS: dict[str, dict[str, str]] = {
+    "pacman": {
+        "git": "git",
+        "docker": "docker",
+    },
+    "yay": {
+        "git": "git",
+        "docker": "docker",
+    },
+    "paru": {
+        "git": "git",
+        "docker": "docker",
+    },
+}
+
+_PM_BASE: dict[str, list[str]] = {
+    "pacman": ["pacman", "-S", "--noconfirm"],
+    "yay": ["yay", "-S", "--noconfirm", "--needed"],
+    "paru": ["paru", "-S", "--noconfirm", "--needed"],
+}
+
+
 def _pm_install_cmd(pm: str, tool: str) -> list[str]:
-    pkgs = {
-        "apt-get": {
-            "git": "git",
-            "docker": "docker.io",
-            "python3": "python3",
-            "node": "nodejs",
-        },
-        "pacman": {
-            "git": "git",
-            "docker": "docker",
-            "python3": "python",
-            "node": "nodejs",
-        },
-        "dnf": {
-            "git": "git",
-            "docker": "docker",
-            "python3": "python3",
-            "node": "nodejs",
-        },
-        "yum": {
-            "git": "git",
-            "docker": "docker",
-            "python3": "python3",
-            "node": "nodejs",
-        },
-        "brew": {
-            "git": "git",
-            "docker": "docker",
-            "python3": "python3",
-            "node": "node",
-        },
-        "apk": {
-            "git": "git",
-            "docker": "docker",
-            "python3": "python3",
-            "node": "nodejs",
-        },
-        "zypper": {
-            "git": "git",
-            "docker": "docker",
-            "python3": "python3",
-            "node": "nodejs",
-        },
-    }
-    pkg = pkgs.get(pm, {}).get(tool)
+    pkg = _PM_PKGS.get(pm, {}).get(tool)
     if not pkg:
         return []
-    base = {
-        "apt-get": ["apt-get", "install", "-y"],
-        "pacman": ["pacman", "-S", "--noconfirm"],
-        "dnf": ["dnf", "install", "-y"],
-        "yum": ["yum", "install", "-y"],
-        "brew": ["brew", "install"],
-        "apk": ["apk", "add"],
-        "zypper": ["zypper", "install", "-y"],
-    }
-    return base.get(pm, []) + [pkg]
+    return _PM_BASE.get(pm, []) + [pkg]
 
 
-def install_tools(tools: list[str], password: str | None = None) -> list[str]:
-    """Install missing tools. Returns list of failed tools.
+def _run_sudo(cmd: list[str], pw_bytes: bytearray | None,
+              sudo_path: str | None) -> tuple[int, str]:
+    """Run a command with sudo, using password if available.
+
+    Returns (returncode, stderr_output).
+    """
+    if pw_bytes is not None and sudo_path:
+        full_cmd = ["sudo", "-S"] + cmd
+        proc = subprocess.Popen(
+            full_cmd,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        proc.communicate(input=pw_bytes + b"\n", timeout=120)
+        return proc.returncode, proc.stderr.decode(errors="replace")
+    elif sudo_path:
+        result = subprocess.run(
+            [sudo_path] + cmd,
+            capture_output=True, text=True, timeout=120,
+        )
+        return result.returncode, result.stderr
+    else:
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=120,
+        )
+        return result.returncode, result.stderr
+
+
+def install_tools(tools: list[str], password: str | None = None) -> tuple[list[str], list[str]]:
+    """Install missing tools. Returns (failed_tools, warnings).
 
     If *password* is provided, uses ``sudo -S`` to pass it non-interactively.
     Otherwise the usual ``sudo`` is tried without stdin (will likely fail
@@ -128,15 +125,15 @@ def install_tools(tools: list[str], password: str | None = None) -> list[str]:
     """
     pm = detect_pm()
     if not pm:
-        return tools
+        return (tools, [])
 
-    # Convert to mutable bytearray so we can zero it after use
     pw_bytes: bytearray | None = None
     if password is not None:
         pw_bytes = bytearray(password, "utf-8")
 
     sudo_path = shutil.which("sudo")
     failed: list[str] = []
+    installed: list[str] = []
     for tool in tools:
         if is_installed(tool):
             continue
@@ -146,35 +143,66 @@ def install_tools(tools: list[str], password: str | None = None) -> list[str]:
             continue
 
         try:
-            if pw_bytes is not None and sudo_path:
-                full_cmd = ["sudo", "-S"] + cmd
-                proc = subprocess.Popen(
-                    full_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                proc.communicate(input=pw_bytes + b"\n", timeout=120)
-                if proc.returncode != 0:
-                    failed.append(tool)
-            elif sudo_path and pm not in ("brew",):
-                full_cmd = [sudo_path] + cmd
-                subprocess.run(
-                    full_cmd,
-                    capture_output=True, text=True,
-                    timeout=120,
-                )
+            _run_sudo(cmd, pw_bytes, sudo_path)
+            if is_installed(tool):
+                installed.append(tool)
             else:
-                subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
-            if not is_installed(tool):
                 failed.append(tool)
         except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
             failed.append(tool)
 
-    # Zero out password bytes
+    warnings: list[str] = []
+    if installed and "docker" in installed:
+        warnings.extend(post_install_actions(installed, password))
+
     if pw_bytes is not None:
         for i in range(len(pw_bytes)):
             pw_bytes[i] = 0
 
-    return failed
+    return (failed, warnings)
+
+
+def post_install_actions(tools: list[str], password: str | None = None) -> list[str]:
+    """Run post-install setup (Docker service, user groups).
+
+    Returns warning messages for the user.
+    """
+    warnings: list[str] = []
+    if "docker" not in tools:
+        return warnings
+
+    pw_bytes: bytearray | None = None
+    if password is not None:
+        pw_bytes = bytearray(password, "utf-8")
+
+    sudo_path = shutil.which("sudo")
+
+    try:
+        rc, _ = _run_sudo(
+            ["systemctl", "enable", "--now", "docker"],
+            pw_bytes, sudo_path,
+        )
+        if rc != 0:
+            warnings.append("Could not start Docker service — run: sudo systemctl enable --now docker")
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        warnings.append("Could not start Docker service — run: sudo systemctl enable --now docker")
+
+    try:
+        username = os.environ.get("USER", "")
+        if username:
+            rc, _ = _run_sudo(
+                ["usermod", "-aG", "docker", username],
+                pw_bytes, sudo_path,
+            )
+            if rc == 0:
+                warnings.append("User added to docker group — log out and back in for it to take effect")
+            else:
+                warnings.append("Could not add user to docker group — run: sudo usermod -aG docker $USER")
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        warnings.append("Could not add user to docker group — run: sudo usermod -aG docker $USER")
+
+    if pw_bytes is not None:
+        for i in range(len(pw_bytes)):
+            pw_bytes[i] = 0
+
+    return warnings

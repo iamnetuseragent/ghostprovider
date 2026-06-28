@@ -30,6 +30,7 @@ from ghostprovider.services import (
 )
 from ghostprovider.installer import (
     required_tools, missing_tools, install_tools, tool_description,
+    detect_pm,
 )
 
 
@@ -613,9 +614,68 @@ class RepoResultScreen(Screen):
         rain = self.query_one(MatrixRain)
         _safe_task(self._animate_result(rain))
 
+    def _ask_confirm(self, msg: str) -> asyncio.Future:
+        """Push a ConfirmModal and return a Future that resolves to bool."""
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+
+        def _cb(confirmed: bool) -> None:
+            fut.set_result(confirmed)
+
+        self.app.push_screen(ConfirmModal(msg), _cb)
+        return fut
+
+    def _ask_sudo(self) -> asyncio.Future:
+        """Push a SudoPrompt and return a Future that resolves to str | None."""
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+
+        def _cb(password: str | None) -> None:
+            fut.set_result(password)
+
+        self.app.push_screen(SudoPrompt(), _cb)
+        return fut
+
     async def _animate_result(self, rain: MatrixRain) -> None:
         await rain.typewrite_status("initializing target acquisition...", speed=0.04)
         await asyncio.sleep(0.3)
+
+        # Pre-check: git must be installed before we can clone
+        if not is_installed("git"):
+            await rain.typewrite_status("git not found, checking package manager...", speed=0.04)
+            pm = detect_pm()
+            if pm:
+                await rain.typewrite_ok(f"Package manager: {pm}", addr="PM", speed=0.02)
+                confirmed = await self._ask_confirm(
+                    "[yellow]Git is not installed.[/yellow]\n"
+                    f"[yellow]Install via {pm}?[/yellow]"
+                )
+                if confirmed:
+                    password = await self._ask_sudo()
+                    if password is not None:
+                        await rain.typewrite_ok("installing git...", addr="INST", speed=0.02)
+                        loop = asyncio.get_event_loop()
+                        failed, warnings = await loop.run_in_executor(
+                            None, lambda: install_tools(["git"], password=password)
+                        )
+                        if failed:
+                            rain.write_fail("FAILED TO INSTALL GIT", detail="ERR")
+                            rain.write_fail("install manually and try again", detail="ERR")
+                            rain.set_status("Enter — return")
+                            return
+                        await rain.typewrite_ok("git installed", addr="DONE", speed=0.02)
+                    else:
+                        rain.write_fail("INSTALLATION CANCELLED", detail="")
+                        rain.set_status("Enter — return")
+                        return
+                else:
+                    rain.write_fail("Git is required to clone repositories", detail="")
+                    rain.set_status("Enter — return")
+                    return
+            else:
+                rain.write_fail("No package manager found", detail="ERR")
+                rain.write_fail("install git manually", detail="ERR")
+                rain.set_status("Enter — return")
+                return
+
         await rain.typewrite_status("cloning repository...", speed=0.04)
         await asyncio.sleep(0.2)
 
@@ -754,7 +814,7 @@ class RepoResultScreen(Screen):
             await rain.typewrite_ok(tool_description(t), addr="INST", speed=0.01)
 
         loop = asyncio.get_event_loop()
-        failed = await loop.run_in_executor(
+        failed, warnings = await loop.run_in_executor(
             None, lambda: install_tools(self._install_tools, password=password)
         )
 
@@ -768,6 +828,8 @@ class RepoResultScreen(Screen):
             return
 
         await rain.typewrite_ok("dependencies installed", addr="DONE", speed=0.02)
+        for w in warnings:
+            await rain.typewrite_ok(w, addr="WARN", speed=0.01)
         await asyncio.sleep(0.3)
         self._start_hosting(result)
 
@@ -923,13 +985,64 @@ class HostingScreen(Screen):
             # Pre-flight checks
             await self._typewrite(log, f"  [yellow]{_hex()}[/yellow] [dim]pre-flight checks...[/dim]")
             issues = await loop.run_in_executor(None, preflight_check)
+
             if issues:
-                for iss in issues:
-                    await self._typewrite(log, f"  [yellow]  ⚠ {iss}[/yellow]")
-                await self._typewrite(log, "  [red]→ pre-flight checks failed, aborting[/red]")
-                self._done = True
-                await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
-                return
+                docker_missing = any("Docker not installed" in i for i in issues)
+                other_issues = [i for i in issues if "Docker" not in i]
+
+                if docker_missing and not other_issues:
+                    pm = detect_pm()
+                    if pm:
+                        await self._typewrite(log, "  [yellow]  Docker is not installed[/yellow]")
+                        await self._typewrite(log, f"  [yellow]  Package manager detected: {pm}[/yellow]")
+
+                        confirmed = await self._ask_confirm(
+                            "[yellow]Install Docker now?[/yellow]\n"
+                            "[dim](requires sudo)[/dim]"
+                        )
+                        if confirmed:
+                            password = await self._ask_sudo()
+                            if password is not None:
+                                await self._typewrite(log, "  [yellow]  installing Docker...[/dim]")
+                                failed, warnings = await loop.run_in_executor(
+                                    None, lambda: install_tools(["docker"], password=password)
+                                )
+                                if failed:
+                                    for t in failed:
+                                        await self._typewrite(log, f"  [red]  failed to install {tool_description(t)}[/red]")
+                                    await self._typewrite(log, "  [red]→ Docker installation failed, aborting[/red]")
+                                    self._done = True
+                                    await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
+                                    return
+
+                                for w in warnings:
+                                    await self._typewrite(log, f"  [yellow]  ⚠ {w}[/yellow]")
+                                await self._typewrite(log, "  [green]  Docker installed successfully[/green]")
+                                await asyncio.sleep(0.5)
+                            else:
+                                await self._typewrite(log, "  [red]→ installation cancelled, aborting[/red]")
+                                self._done = True
+                                await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
+                                return
+                        else:
+                            await self._typewrite(log, "  [red]→ installation declined, aborting[/red]")
+                            self._done = True
+                            await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
+                            return
+                    else:
+                        for iss in issues:
+                            await self._typewrite(log, f"  [yellow]  ⚠ {iss}[/yellow]")
+                        await self._typewrite(log, "  [red]→ no package manager found, cannot install Docker[/red]")
+                        self._done = True
+                        await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
+                        return
+                else:
+                    for iss in issues:
+                        await self._typewrite(log, f"  [yellow]  ⚠ {iss}[/yellow]")
+                    await self._typewrite(log, "  [red]→ pre-flight checks failed, aborting[/red]")
+                    self._done = True
+                    await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
+                    return
 
             await self._typewrite(log, f"  [yellow]{_hex()}[/yellow] [dim]breaching target firewall...[/dim]")
             prog.update(progress=2)
@@ -988,6 +1101,26 @@ class HostingScreen(Screen):
 
         await self._typewrite(log, "  [dim yellow]Enter to return[/dim yellow]")
         self._done = True
+
+    def _ask_confirm(self, msg: str) -> asyncio.Future:
+        """Push a ConfirmModal and return a Future that resolves to bool."""
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+
+        def _cb(confirmed: bool) -> None:
+            fut.set_result(confirmed)
+
+        self.app.push_screen(ConfirmModal(msg), _cb)
+        return fut
+
+    def _ask_sudo(self) -> asyncio.Future:
+        """Push a SudoPrompt and return a Future that resolves to str | None."""
+        fut: asyncio.Future = asyncio.get_event_loop().create_future()
+
+        def _cb(password: str | None) -> None:
+            fut.set_result(password)
+
+        self.app.push_screen(SudoPrompt(), _cb)
+        return fut
 
     def on_key(self, event) -> None:
         if event.key == "enter" and getattr(self, "_done", False):

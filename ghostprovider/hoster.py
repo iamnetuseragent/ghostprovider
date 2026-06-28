@@ -1322,11 +1322,11 @@ def preflight_check() -> list[str]:
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode != 0:
-            issues.append("Docker daemon not running (try: sudo systemctl start docker)")
+            issues.append("Docker not running")
     except FileNotFoundError:
         issues.append("Docker not installed")
     except subprocess.TimeoutExpired:
-        issues.append("Docker daemon not responding")
+        issues.append("Docker not responding")
 
     # Network
     try:

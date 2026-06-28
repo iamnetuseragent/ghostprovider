@@ -11,8 +11,8 @@
 [![Docker](https://img.shields.io/badge/Docker-ready-ff9900?style=for-the-badge&logo=docker&logoColor=white&labelColor=111)](https://docker.com)
 [![Textual](https://img.shields.io/badge/Built%20with-Textual-ff9900?style=for-the-badge&logo=python&logoColor=white&labelColor=111)](https://textual.textualize.io)
 
-<img src="https://img.shields.io/github/stars/iamnetuseroagent/ghostprovider?style=flat-square&color=ff9900&logo=github" alt="stars">
-<img src="https://img.shields.io/github/last-commit/iamnetuseroagent/ghostprovider?style=flat-square&color=ff9900&label=updated" alt="last commit">
+<img src="https://img.shields.io/github/stars/iamnetuseragent/ghostprovider?style=flat-square&color=ff9900&logo=github" alt="stars">
+<img src="https://img.shields.io/github/last-commit/iamnetuseragent/ghostprovider?style=flat-square&color=ff9900&label=updated" alt="last commit">
 
 <br>
 <br>
@@ -41,7 +41,7 @@ Analyze your system, discover services, deploy GitHub repos as Docker containers
 ## Installation
 
 ```bash
-git clone https://github.com/iamnetuseroagent/ghostprovider.git
+git clone https://github.com/iamnetuseragent/ghostprovider.git
 cd ghostprovider
 makepkg -si
 ```

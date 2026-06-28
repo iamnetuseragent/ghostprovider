@@ -3,11 +3,11 @@ pkgver=1.0.0
 pkgrel=1
 pkgdesc="TUI for self-hosting & localhost management"
 arch=('any')
-url="https://github.com/iamnetuseroagent/ghostprovider"
+url="https://github.com/iamnetuseragent/ghostprovider"
 license=('MIT')
 depends=('python' 'docker' 'git' 'python-pip')
 makedepends=('git')
-source=("$pkgname::git+https://github.com/iamnetuseroagent/ghostprovider.git")
+source=("$pkgname::git+https://github.com/iamnetuseragent/ghostprovider.git")
 sha256sums=('SKIP')
 
 package() {

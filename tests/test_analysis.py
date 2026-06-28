@@ -691,11 +691,14 @@ class TestInstaller:
     def test_required_tools(self):
         assert "git" in required_tools(False, False, False, False, False, False)
         assert "docker" in required_tools(True, False, False, False, False, False)
-        assert "python3" in required_tools(False, False, False, True, False, False)
-        assert "node" in required_tools(False, False, True, False, False, False)
+        assert "docker" in required_tools(False, True, False, False, False, False)
+        assert "docker" in required_tools(False, False, False, False, False, False, has_index=True)
+        # git is always required, docker only for compose/dockerfile/index
+        tools = required_tools(False, False, True, False, False, False)
+        assert "git" in tools
+        assert "docker" not in tools
 
     def test_missing_tools(self):
-        # On this system, some tools are installed
         missing = missing_tools(["python3"])
         assert isinstance(missing, list)
 
