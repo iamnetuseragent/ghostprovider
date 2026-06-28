@@ -522,8 +522,8 @@ body::before {
 .visitor-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
+  gap: 8px;
+  padding: 6px 14px;
   border-radius: 100px;
   background: rgba(255, 153, 0, 0.06);
   border: 1px solid rgba(255, 153, 0, 0.12);
@@ -541,14 +541,19 @@ body::before {
 }
 
 .visitor-badge svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   opacity: 0.7;
 }
 
 .visitor-count {
   font-weight: 600;
   color: var(--accent);
+}
+
+.visitor-sep {
+  color: var(--text-dim);
+  opacity: 0.4;
 }
 
 @media (max-width: 820px) {
@@ -608,10 +613,12 @@ body::before {
       <div class="about-grid">
         <div class="profile-col">
           <div class="nickname">GHOST PROVIDER</div>
-          <div class="tagline" style="text-align:center;line-height:1.8"><em>Your data is your life. Fail to protect it, and you fail to protect your future. Only you decide what that future will be.</em></div>
+          <div class="tagline" style="text-align:center;line-height:1.8"><em>Your data is your life.</em></div>
           <div class="visitor-badge" id="visitor-badge">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            <span><span class="visitor-count" id="visitor-count">...</span> views</span>
+            <span><span class="visitor-count" id="visitor-unique">0</span> <span id="visitor-unique-label">visitors</span></span>
+            <span class="visitor-sep">·</span>
+            <span><span class="visitor-count" id="visitor-total">0</span> <span id="visitor-total-label">views</span></span>
           </div>
           <div class="logo-wrap">
             <img src="avatar.png" alt="Ghost Provider" style="width:100%;height:100%;object-fit:cover;border-radius:14px;">
@@ -776,21 +783,35 @@ function copyBTC(el) {
     });
   });
 
-  var counterUrl = 'https://api.counterapi.dev/v1/iamnetuser/ghostprovider/';
+  var totalUrl = 'https://api.counterapi.dev/v1/iamnetuser/ghostprovider/';
+  var uniqueUrl = 'https://api.counterapi.dev/v1/iamnetuser/ghostprovider-unique/';
   var EXPIRE_MS = 30 * 24 * 60 * 60 * 1000;
   var stored = null;
   try { stored = JSON.parse(localStorage.getItem('gp_v_gp')); } catch(e) {}
   var now = Date.now();
-  if (!stored || (now - stored.ts) > EXPIRE_MS) {
+  var isNewVisitor = !stored || (now - stored.ts) > EXPIRE_MS;
+  if (isNewVisitor) {
     var id = Math.random().toString(36).slice(2) + now.toString(36);
     localStorage.setItem('gp_v_gp', JSON.stringify({ id: id, ts: now }));
-    fetch(counterUrl + 'up');
+    fetch(totalUrl + 'up');
+    fetch(uniqueUrl + 'up');
+  } else {
+    fetch(totalUrl + 'up');
   }
-  fetch(counterUrl)
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      document.getElementById('visitor-count').textContent = d.count || '0';
-    })
+  Promise.all([
+    fetch(totalUrl).then(function(r) { return r.json(); }),
+    fetch(uniqueUrl).then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    var total = results[0].count || 0;
+    var unique = results[1].count || 0;
+    document.getElementById('visitor-total').textContent = total;
+    document.getElementById('visitor-total-label').textContent = total === 1 ? 'view' : 'views';
+    document.getElementById('visitor-unique').textContent = unique;
+    document.getElementById('visitor-unique-label').textContent = unique === 1 ? 'visitor' : 'visitors';
+  }).catch(function() {
+    document.getElementById('visitor-total').textContent = '0';
+    document.getElementById('visitor-unique').textContent = '0';
+  });
     .catch(function() {
       document.getElementById('visitor-count').textContent = '0';
     });
