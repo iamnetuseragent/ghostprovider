@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/GHOST PROVIDER.JPEG" alt="GHOST PROVIDER" width="400">
+<img src="assets/GHOST PROVIDER.JPEG" alt="GHOST PROVIDER" width="1100">
 
 <br>
 
